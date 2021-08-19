@@ -1,4 +1,5 @@
 from functools import reduce
+from pathlib import Path
 from time import perf_counter
 
 import bokeh.layouts
@@ -16,6 +17,7 @@ from holoviews.plotting.util import process_cmap
 from numpy import log
 from pyopenms import *
 import pandas as pd
+import os
 
 import holoviews as hv
 import holoviews.operation.datashader as hd
@@ -43,7 +45,7 @@ def modify_doc(doc):
     opts.setIntensity32Bit(True)
     loader.setOptions(opts)
     #loader.load("/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML", exp)
-    loader.load(os.path.join(os.path.dirname(__file__), "static/data/BSA1.mzML"), exp)
+    loader.load(str(Path(__file__).resolve().parent) + "/static/data/BSA1.mzML", exp)
     load_stop = perf_counter()
     print("Time for loading mzML:",
           load_stop - t1_start)
