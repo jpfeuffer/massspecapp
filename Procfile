@@ -1,1 +1,1 @@
-web: bokeh serve --port=$PORT --host=massspec.herokuapp.com --address=0.0.0.0 --use-xheaders bokehappfolder
+web: bokeh serve --port=$PORT --num-procs=0 --allow-websocket-origin=massspec.herokuapp.com --address=0.0.0.0 --use-xheaders bokehappfolder
