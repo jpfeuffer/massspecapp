@@ -43,7 +43,7 @@ def modify_doc(doc):
     opts.setIntensity32Bit(True)
     loader.setOptions(opts)
     #loader.load("/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML", exp)
-    loader.load("/Users/pfeuffer/git/OpenMS-fixes-src/share/OpenMS/examples/BSA/BSA1.mzML", exp)
+    loader.load(os.path.join(os.path.dirname(__file__), "static/data/BSA1.mzML"), exp)
     load_stop = perf_counter()
     print("Time for loading mzML:",
           load_stop - t1_start)
