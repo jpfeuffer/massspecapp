@@ -1,41 +1,15 @@
+//TODO dat gui still does not remove inbetween updates..
+//TODO color does not reset after making a new selection. WE probably have to store the old height
+//TODO reuse much more functions! Problem is the different data we sometimes use.
+//TODO indent better
+
 console.clear();
 
-var data;
+var globaldata;
+var globalrtminidx;
+var globalrtmaxidx;
+var gui = new dat.GUI({ autoPlace: false });
 
-// TODO does not really work yet. It loads correctly but does not update scene
-// if there was one loaded already.
-/*$("#up").change(function(event){
-    var uploadedFile = event.target.files[0];
-
-    var filename = uploadedFile.name
-
-     var extension = filename.replace(/^.*\./, '');
-     if(extension != "json")
-     { 	alert('not supported');
-         return;
-
-     }else{
-        var readFile = new FileReader();
-        readFile.onload = function(e) {
-            var contents = e.target.result;
-            var data = JSON.parse(contents);
-            renderAll(data);
-        };
-        readFile.readAsText(uploadedFile);
-    }
-});
-
-
-function alert_data(json)
-{
-    var response=$.parseJSON(json);
-  if(typeof response =='object')
-  {
-    alert('valid json file');
-  }else{
-    alert('invalid json file');
-  }
-};*/
 var stats = new Stats(1);
 var scene = new THREE.Scene();
 scene.background = new THREE.Color("white");
@@ -44,6 +18,7 @@ camera.position.set(0, 70, 150);
 let renderer = new THREE.WebGLRenderer({antialias: false}); //AA off for now for speed?
 
 $(document).ready(function(){
+    $('.threedplot').append($(gui.domElement));
     $('.threedplot').append($(stats.dom));
     document.getElementById('threedplot').appendChild(renderer.domElement);
     var container = renderer.domElement.parentElement;
@@ -53,6 +28,411 @@ $(document).ready(function(){
       renderAll(d);
     });
 });
+
+
+function GridGeometry(width = 1, height = 1, wSeg = 1, hSeg = 1, lExt = [0, 0]){
+
+  let seg = new THREE.Vector2(width / wSeg, height / hSeg);
+  let hlfSeg = seg.clone().multiplyScalar(0.5);
+
+  let pts = [];
+
+  for(let y = 0; y <= hSeg; y++){
+  	pts.push(
+    	new THREE.Vector2(0, y * seg.y),
+      new THREE.Vector2(width + (hlfSeg.x * lExt[0]), y * seg.y)
+    )
+  }
+
+  for(let x = 0; x <= wSeg; x++){
+  	pts.push(
+    	new THREE.Vector2(x * seg.x, 0),
+      new THREE.Vector2(x * seg.x, height + (hlfSeg.y * lExt[1]))
+    )
+  }
+
+  return new THREE.BufferGeometry().setFromPoints(pts);
+
+}
+
+function binarySearch(value, list, first, last) {
+    let position = -1;
+    let found = false;
+    let middle;
+
+    while (found === false && first <= last) {
+        middle = Math.floor((first + last)/2);
+        if (list[middle] === value) {
+            found = true;
+            position = middle;
+        } else if (list[middle] > value) {
+            last = middle - 1;
+        } else {
+            first = middle + 1;
+        }
+    }
+    return position;
+}
+
+function closest (num, arr, lo, hi) {
+    var mid;
+    while (hi - lo > 1) {
+        mid = Math.floor ((lo + hi) / 2);
+        if (arr[mid] < num) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    if (num - arr[lo] <= arr[hi] - num) {
+        return lo;
+    }
+    return hi;
+}
+
+// called from app, not here
+function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
+    globaldata = data;
+    let startrtidx = closest(minRT,data.data['RT'],0,data.data['RT'].length - 1)
+    globalrtminidx = startrtidx;
+    let endrtidx = closest(maxRT,data.data['RT'],startrtidx,data.data['RT'].length - 1)
+    globalrtmaxidx = endrtidx;
+    console.log(startrtidx,endrtidx)
+    let cnt = endrtidx - startrtidx;
+    if (cnt > 100000)
+    {
+        alert("Too many points for 3D view. Please zoom in.")
+    }
+    let container = renderer.domElement.parentElement;
+    let canvas = renderer.domElement
+    let maxInt = 0;
+    let minInt = 1000000000000;
+    let mzPaintWidth = 500;
+    let rtPaintWidth = 500;
+    let intPaintWidth = 100;
+    let scaleMZ = mzPaintWidth/(maxMZ - minMZ);
+    let scaleRT = rtPaintWidth/(maxRT - minRT);
+    let dotScale = 0.8;
+    for (let i = startrtidx; i < endrtidx; i++)
+    {
+        let pt = data.data['inty'][i];
+        maxInt = Math.max(maxInt,pt)
+        minInt = Math.min(minInt,pt)
+    }
+
+console.log(maxMZ,maxInt,maxRT,cnt);
+
+scene = new THREE.Scene();
+scene.background = new THREE.Color("white");
+
+var points = [
+  new THREE.Vector3(),
+  new THREE.Vector3()
+]
+var clicks = 0;
+
+//we do not need markers where we clicked the peaks
+/*var markerA = new THREE.Mesh(
+  new THREE.SphereGeometry(0.1, 10, 20),
+  new THREE.MeshBasicMaterial({
+    color: 0xff5555
+  })
+);
+var markerB = markerA.clone();
+var markers = [
+  markerA, markerB
+];
+scene.add(markerA);
+scene.add(markerB);
+*/
+
+var linepts = []
+linepts.push(new THREE.Vector3());
+linepts.push(new THREE.Vector3());
+var lineGeometry = new THREE.BufferGeometry().setFromPoints(linepts);
+var lineMaterial = new THREE.LineBasicMaterial({
+  color: 0xff5555,
+  linewidth: 3 // due to OpenGL limitations this mostly has no effect. We would need to use a tube or MeshLine. Performance impact?
+});
+var line = new THREE.Line(lineGeometry, lineMaterial);
+scene.add(line);
+
+function setLine(vectorA, vectorB) {
+  let psts = line.geometry.attributes.position.array;
+  psts[0] = vectorA.x;
+  psts[1] = 0.1;
+  psts[2] = vectorA.z;
+  psts[3] = vectorB.x;
+  psts[4] = 0.1;
+  psts[5] = vectorB.z;
+  line.geometry.computeBoundingSphere(); // to update it
+  line.geometry.attributes.position.needsUpdate = true;
+}
+
+// Grids translated
+/*let g1 = GridGeometry(maxRT-minRT, maxInt, 4, 3, [0, 0]);
+    g1.translate(0,0,minRT);
+let m1 = new THREE.LineBasicMaterial({color: "yellow"});
+let grid1 = new THREE.LineSegments(g1, m1);
+scene.add(grid1);
+
+let g2 = GridGeometry(maxRT-minRT, maxMZ-minMZ, 4, 2, [0, 0]);
+
+g2.rotateX(Math.PI * 0.5);
+    g2.translate(minMZ,0,minRT);
+let m2 = new THREE.LineBasicMaterial({color: "magenta"});
+let grid2 = new THREE.LineSegments(g2, m2);
+scene.add(grid2);
+
+let g3 = GridGeometry(maxMZ-minMZ, maxInt, 2, 3, [0, 0]);
+
+g3.rotateY(Math.PI * -0.5);
+    g3.translate(minMZ,0,0);
+let m3 = new THREE.LineBasicMaterial({color: "aqua"});
+let grid3 = new THREE.LineSegments(g3, m3);
+scene.add(grid3);*/
+
+//Grids untranslated, data points moved to origin
+let g1 = GridGeometry(rtPaintWidth, intPaintWidth, 1, 1, [0, 0]);
+let m1 = new THREE.LineBasicMaterial({color: "gray"});
+let grid1 = new THREE.LineSegments(g1, m1);
+scene.add(grid1);
+
+let g2 = GridGeometry(rtPaintWidth, mzPaintWidth, 1, 1, [0, 0]);
+g2.rotateX(Math.PI * 0.5);
+let m2 = new THREE.LineBasicMaterial({color: "gray"});
+let grid2 = new THREE.LineSegments(g2, m2);
+scene.add(grid2);
+
+let g3 = GridGeometry(mzPaintWidth, intPaintWidth, 1, 1, [0, 0]);
+g3.rotateY(Math.PI * -0.5);
+let m3 = new THREE.LineBasicMaterial({color: "gray"});
+let grid3 = new THREE.LineSegments(g3, m3);
+scene.add(grid3);
+
+let g = new THREE.BoxGeometry(dotScale,1,dotScale);
+
+// extend material to color from bottom to top
+let m = THREE.extendMaterial(THREE.MeshPhongMaterial, {
+
+    header: 'varying vec3;',
+
+    vertex: {
+        '#include <fog_vertex>': `
+        vec4 mypos = instanceMatrix * vec4( position, 1.0 );
+        float h = mypos.y/(0.2*100.0);
+        if(vColor == vec3(1.0,1.0,1.0))
+        {
+          vColor = vec3(pow(h, 1.0), 2.0*h, 1.0 - h);
+        }
+        `
+    },
+    fragment: {
+        'gl_FragColor = vec4( outgoingLight, diffuseColor.a );' : 'gl_FragColor.rgb = vColor;'
+    }
+
+});
+
+camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 1000);
+camera.position.set(250, 70, 250);
+renderer.setSize(container.getBoundingClientRect().width, container.getBoundingClientRect().height);
+camera.aspect = container.getBoundingClientRect().width/container.getBoundingClientRect().height;
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2( 1, 1 );
+
+let controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+let c1 = new THREE.Color(0, 0.5, 1);
+let c2 = new THREE.Color(0.5, 0, 1);
+let c = new THREE.Color();
+
+let o = new THREE.InstancedMesh(g, m, cnt);
+    o.name = "peaks";
+
+let dummy = new THREE.Object3D();
+let mat4 = new THREE.Matrix4();
+
+function getIntersections(event) {
+  var mouseVec = new THREE.Vector2();
+  mouseVec.x = ( event.offsetX / canvas.clientWidth ) * 2 - 1;
+  mouseVec.y = - ( event.offsetY / canvas.clientHeight ) * 2 + 1;
+
+  var raycaster = new THREE.Raycaster();
+  const o = scene.getObjectByName("peaks");
+  raycaster.setFromCamera(mouseVec, camera);
+  return raycaster.intersectObject( o );
+}
+
+
+function updatePeaks(instMesh, withHeight, dotSize)
+{
+  var cnt2 = 0;
+  for (let i = globalrtminidx; i < globalrtmaxidx; i++)
+  {
+    let mz = globaldata.data['mz'][i];
+    if (mz < minMZ || mz > maxMZ) continue;
+    let x = (mz - minMZ) * scaleMZ;
+
+    let hData = globaldata.data['inty'][i]*intPaintWidth/maxInt;
+
+    let y = (globaldata.data['RT'][i] - minRT) * scaleRT;
+    if (withHeight)
+    {
+      dummy.position.set(y,hData/2,x);
+      dummy.scale.set(1, hData ,1);
+      instMesh.setColorAt(cnt2, new THREE.Color())
+    }
+    else
+    {
+      dummy.position.set(y,0,x);
+      dummy.scale.set(dotSize, 0.00001 ,dotSize); // 0 height does not let me select anymore
+      instMesh.setColorAt(cnt2, c.lerpColors(c1, c2, Math.log(hData)/Math.log(100)))
+    }
+    dummy.updateMatrix();
+    instMesh.setMatrixAt(cnt2, dummy.matrix);
+    cnt2++;
+  }
+  instMesh.instanceMatrix.needsUpdate = true;
+  instMesh.instanceColor.needsUpdate = true;
+}
+
+scene.add(o);
+updatePeaks(o,true,dotScale);
+
+
+
+
+renderer.setAnimationLoop( _ => {
+  stats.begin()
+  raycaster.setFromCamera( mouse, camera );
+
+  let o = scene.getObjectByName("peaks");
+  const intersection = raycaster.intersectObject( o );
+
+  if ( intersection.length > 0 ) {
+
+    info.style.display = "block";
+    const instanceId = intersection[ 0 ].instanceId;
+
+    o.getMatrixAt(instanceId, mat4);
+    mat4.decompose(dummy.position, dummy.quaternion, dummy.scale);
+
+    info.innerText = `int: ${dummy.scale.y*maxInt},\n RT: ${(dummy.position.x / scaleRT) + minRT},\n mz: ${(dummy.position.z/scaleMZ) + minMZ}`;
+
+  }
+  else {
+    info.style.display = "none";
+  }
+
+  renderer.render(scene, camera);
+  stats.end();
+})
+
+var guiTopView = { topview:function(){
+      let o = scene.getObjectByName( "peaks" );
+      //scene.remove(o);
+      //o = new THREE.InstancedMesh(g, m, cnt);
+      //o.name = "peaks";
+      //TODO we could actually just change the scales. No need to go through the data again.
+      //make the peaks flat and wider for top view
+      updatePeaks(o,false,2);
+
+      camera.position.x = (maxRT-minRT)*scaleRT/2;
+      camera.position.y = 100;
+      camera.position.z = (maxMZ-minMZ)*scaleMZ/2;
+      camera.lookAt((maxRT-minRT)*scaleRT/2,0,(maxMZ-minMZ)*scaleMZ/2);
+      camera.updateProjectionMatrix();
+      controls.target.set((maxRT-minRT)*scaleRT/2,0,(maxMZ-minMZ)*scaleMZ/2);
+      controls.enableRotate = false;
+      controls.update();
+      renderer.render(scene, camera);
+}};
+
+var guiFreeView = { freeview:function(){
+      let o = scene.getObjectByName( "peaks" );
+      //scene.remove(o);
+      //o = new THREE.InstancedMesh(g, m, cnt);
+      //o.name = "peaks";
+      //TODO we could actually just change the scales. No need to go through the data again.
+      //make the peaks flat and wider for top view
+      updatePeaks(o,true,dotScale);
+      controls.enableRotate = true;
+      controls.update();
+      renderer.render(scene, camera);
+}};
+
+gui.destroy();
+gui = new dat.GUI({ autoPlace: false });
+gui.add(guiTopView,'topview');
+gui.add(guiFreeView,'freeview');
+$('.threedplot').append($(gui.domElement));
+
+
+canvas.addEventListener( 'mousemove', onMouseMove );
+canvas.addEventListener('mousedown', onDocumentMouseDown, false);
+container.addEventListener('resize', onContainerResize);
+
+function onMouseMove( event ) {
+  event.preventDefault();
+
+  mouse.x = ( event.offsetX / canvas.clientWidth ) * 2 - 1;
+  mouse.y = - ( event.offsetY / canvas.clientHeight ) * 2 + 1;
+  info.style.transform = `translate(${event.offsetX + 15}px, ${event.offsetY + 5}px)`;
+
+}
+
+function onDocumentMouseDown(event) {
+
+  if (event.button === 2) {
+  var intersects = getIntersections(event);
+
+  //sets all colors
+  //intersects[ 0 ].object.material.color.set( 0xff0000 );
+
+  if (intersects.length > 0) {
+    var o = scene.getObjectByName("peaks");
+    console.log(intersects[ 0 ].instanceId);
+    //TODO reset to old colors
+    o.setColorAt(intersects[ 0 ].instanceId, new THREE.Color(0xff5555));
+    o.instanceColor.needsUpdate = true;
+    o.getMatrixAt(intersects[ 0 ].instanceId, mat4);
+    mat4.decompose(dummy.position, dummy.quaternion, dummy.scale);
+    points[clicks].copy(dummy.position);
+    //markers[clicks].position.copy(intersects[0].point);
+    setLine(dummy.position, dummy.position);
+    clicks++;
+    if (clicks > 1){
+      var distancert = Math.abs(points[0].x - points[1].x);
+      var distancemz = Math.abs(points[0].z - points[1].z);
+      distanceMZPlace.innerText = "Distance MZ: " + distancemz/scaleMZ + " Da";
+      distanceRTPlace.innerText = "Distance RT: " + distancert/scaleRT + " s";
+      setLine(points[0], points[1]);
+      clicks = 0;
+    }
+  }
+  }
+}
+
+//function onWindowResize() {
+//
+//  camera.aspect = window.innerWidth / window.innerHeight;
+//  camera.updateProjectionMatrix();
+
+//  renderer.setSize( window.innerWidth, window.innerHeight );
+
+//}
+
+function onContainerResize() {
+    var box = container.getBoundingClientRect();
+    renderer.setSize(box.width, box.height);
+
+    camera.aspect = box.width/box.height
+    camera.updateProjectionMatrix()
+    // optional animate/renderloop call put here for render-on-changes
+}
+
+}
 
 
 
@@ -145,31 +525,6 @@ function setLine(vectorA, vectorB) {
   psts[5] = vectorB.z;
   line.geometry.computeBoundingSphere(); // to update it
   line.geometry.attributes.position.needsUpdate = true;
-}
-
-function GridGeometry(width = 1, height = 1, wSeg = 1, hSeg = 1, lExt = [0, 0]){
-
-  let seg = new THREE.Vector2(width / wSeg, height / hSeg);
-  let hlfSeg = seg.clone().multiplyScalar(0.5);
-
-  let pts = [];
-
-  for(let y = 0; y <= hSeg; y++){
-  	pts.push(
-    	new THREE.Vector2(0, y * seg.y),
-      new THREE.Vector2(width + (hlfSeg.x * lExt[0]), y * seg.y)
-    )
-  }
-
-  for(let x = 0; x <= wSeg; x++){
-  	pts.push(
-    	new THREE.Vector2(x * seg.x, 0),
-      new THREE.Vector2(x * seg.x, height + (hlfSeg.y * lExt[1]))
-    )
-  }
-
-  return new THREE.BufferGeometry().setFromPoints(pts);
-
 }
 
 // Grids translated
@@ -298,9 +653,8 @@ function updatePeaks(instMesh, withHeight, dotSize)
       instMesh.instanceColor.needsUpdate = true;
     }
 
-updatePeaks(o,true,dotScale);
 scene.add(o);
-
+updatePeaks(o,true,dotScale);
 
 
 renderer.setAnimationLoop( _ => {
@@ -318,7 +672,7 @@ renderer.setAnimationLoop( _ => {
     o.getMatrixAt(instanceId, mat4);
     mat4.decompose(dummy.position, dummy.quaternion, dummy.scale);
 
-    info.innerText = `int: ${dummy.scale.y},\n mz: ${dummy.position.x},\n RT: ${dummy.position.z}`;
+    info.innerText = `int: ${dummy.scale.y*maxInt},\n RT: ${(dummy.position.x / scaleRT) + minRT},\n mz: ${(dummy.position.z/scaleMZ) + minMZ}`;
 
   }
   else {
@@ -362,10 +716,11 @@ var guiFreeView = { freeview:function(){
       renderer.render(scene, camera);
 }};
 
-const gui = new dat.GUI({ autoPlace: false })
-$('.threedplot').append($(gui.domElement));
+gui.destroy();
+gui = new dat.GUI({ autoPlace: false });
 gui.add(guiTopView,'topview');
 gui.add(guiFreeView,'freeview');
+$('.threedplot').append($(gui.domElement));
 
 
 canvas.addEventListener( 'mousemove', onMouseMove );
@@ -402,10 +757,10 @@ function onDocumentMouseDown(event) {
     setLine(dummy.position, dummy.position);
     clicks++;
     if (clicks > 1){
-      var distancemz = Math.abs(points[0].x - points[1].x);
-      var distancert = Math.abs(points[0].z - points[1].z);
-      distanceMZPlace.innerText = "Distance MZ: " + distancemz + " Da";
-      distanceRTPlace.innerText = "Distance RT: " + distancert + " s";
+      var distancert = Math.abs(points[0].x - points[1].x);
+      var distancemz = Math.abs(points[0].z - points[1].z);
+      distanceMZPlace.innerText = "Distance MZ: " + distancemz/scaleMZ + " Da";
+      distanceRTPlace.innerText = "Distance RT: " + distancert/scaleRT + " s";
       setLine(points[0], points[1]);
       clicks = 0;
     }

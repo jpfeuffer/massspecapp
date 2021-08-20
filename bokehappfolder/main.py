@@ -1,11 +1,11 @@
-from functools import reduce
+from functools import reduce, partial
 from pathlib import Path
 from time import perf_counter
 
 import bokeh.layouts
 import datashader
 import numpy as np
-from bokeh.models import ColumnDataSource, Label, CustomJS, Div
+from bokeh.models import ColumnDataSource, Label, CustomJS, Div, Range1d, DataRange1d, Button
 from bokeh.plotting import figure
 from bokeh.layouts import column, row, layout
 import panel as pn
@@ -62,13 +62,24 @@ def modify_doc(doc):
     # spectradfwide = pd.DataFrame(data=((spec.getRT(), *spec.get_peaks()) for spec in exp if spec.getMSLevel() == 1), columns=cols)
     # spectradf = pd.DataFrame(data=((spec.getRT(), point[0], point[1]) for spec in exp if spec.getMSLevel() == 1 for point in zip(*spec.get_peaks())), columns=expandcols)
     spectradf = pd.DataFrame(data=spectraarr, columns=expandcols)
+    spectracds = ColumnDataSource(spectradf)
+    maxrt = spectradf["RT"].max()
+    minrt = spectradf["RT"].min()
+    maxmz = spectradf["mz"].max()
+    minmz = spectradf["mz"].min()
 
     # Stop the stopwatch / counter
     df_stop = perf_counter()
     print("Time for loading and creating DF:",
           df_stop - np_stop)
 
-    points = hv.Points(spectradf, kdims=['RT', 'mz'], vdims=['inty'], label="test").opts(
+    def new_bounds_hook(plot, elem):
+        x_range = plot.state.x_range
+        y_range = plot.state.y_range
+        x_range.bounds = minrt, maxrt
+        y_range.bounds = minmz, maxmz
+
+    points = hv.Points(spectradf, kdims=['RT', 'mz'], vdims=['inty'], label="MS1 survey scans").opts(
         fontsize={'title': 16, 'labels': 14, 'xticks': 6, 'yticks': 12},
         color=log(dim('int')),
         colorbar=True,
@@ -85,12 +96,16 @@ def modify_doc(doc):
     #        height=1000))#, color_key=colors)
     raster = hd.rasterize(points, cmap=process_cmap("blues", provider="bokeh"), aggregator=datashader.sum('inty'),
                           cnorm='log', alpha=50, min_alpha=10).opts(
-        tools=['hover']).opts(
+        active_tools=['box_zoom'],
+        tools=['hover'],
+        hooks=[new_bounds_hook],
+    ).opts(
         plot=dict(
             width=1000,
             height=1000,
-            xlabel="loc",
-            ylabel="time")
+            xlabel="Retention time (s)",
+            ylabel="mass/charge (Da)"
+        )
     )
 
 
@@ -105,25 +120,21 @@ def modify_doc(doc):
     finalplot = hd.dynspread(raster)
 
     jsupdateinfo = '''
-    var d = [ {
-  "time" : 1675.3155,
-  "m/z array" : [ 359.2407531738281, 359.3271789550781, 360.2444763183594, 360.3111572265625, 360.3471374511719, 361.051025390625, 363.0480651855469 ],
-  "intensity array" : [ 266890.28125, 6482.91064453125, 53019.37109375, 29689.6953125, 7935.1279296875, 42180.21484375, 27541.478515625 ]
-}, {
-  "time" : 1675.55064,
-  "m/z array" : [ 359.2407531738281, 359.327392578125, 360.2445983886719, 360.3111267089844, 361.05078125, 363.04833984375 ],
-  "intensity array" : [ 264650.5, 10177.9462890625, 57445.171875, 33437.2890625, 44480.46875, 25241.8046875 ]
-}];
-    console.log("xrange changes");
-    renderAll(d);
+    alert(data.data['inty'][0])
+        renderAllCDS(data, xr.start, xr.end, yr.start, yr.end);
         '''
 
     hvplot = renderer.get_plot(finalplot, doc)
-    hvplot.state.x_range.js_on_change('start', CustomJS(code=jsupdateinfo))
+    #hvplot.state.x_range.js_on_change('start', CustomJS(code=jsupdateinfo))
 
-    doc.title = 'HoloViews Bokeh App'
+    bt = Button(label='Update 3D View')
+    bt.js_on_click(CustomJS(code=jsupdateinfo, args=dict(xr=hvplot.state.x_range,
+                                                         yr=hvplot.state.y_range,
+                                                         data=spectracds)))
 
-    layout = bokeh.layouts.layout([hvplot.state])
+    doc.title = 'Mass-spectrometry Viewer'
+
+    layout = bokeh.layouts.layout([hvplot.state],[bt])
 
     doc.add_root(layout)
     return doc
