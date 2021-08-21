@@ -120,7 +120,6 @@ def modify_doc(doc):
     finalplot = hd.dynspread(raster)
 
     jsupdateinfo = '''
-    alert(data.data['inty'][0])
         renderAllCDS(data, xr.start, xr.end, yr.start, yr.end);
         '''
 

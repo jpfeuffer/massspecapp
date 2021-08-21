@@ -2,6 +2,7 @@
 //TODO color does not reset after making a new selection. WE probably have to store the old height
 //TODO reuse much more functions! Problem is the different data we sometimes use.
 //TODO indent better
+//TODO get maxInt only from mzs in range
 
 console.clear();
 
@@ -98,11 +99,6 @@ function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
     let endrtidx = closest(maxRT,data.data['RT'],startrtidx,data.data['RT'].length - 1)
     globalrtmaxidx = endrtidx;
     console.log(startrtidx,endrtidx)
-    let cnt = endrtidx - startrtidx;
-    if (cnt > 100000)
-    {
-        alert("Too many points for 3D view. Please zoom in.")
-    }
     let container = renderer.domElement.parentElement;
     let canvas = renderer.domElement
     let maxInt = 0;
@@ -113,11 +109,21 @@ function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
     let scaleMZ = mzPaintWidth/(maxMZ - minMZ);
     let scaleRT = rtPaintWidth/(maxRT - minRT);
     let dotScale = 0.8;
+    let cnt = 0;
     for (let i = startrtidx; i < endrtidx; i++)
     {
+        let mz = data.data['mz'][i];
+        // TODO if everything is sorted we should be able to do binary search inside the RT slice on mz level
+        if (mz < minMZ || mz > maxMZ) continue;
         let pt = data.data['inty'][i];
         maxInt = Math.max(maxInt,pt)
         minInt = Math.min(minInt,pt)
+        cnt++;
+    }
+    if (cnt > 100000)
+    {
+        alert("Too many points for 3D view. Please zoom in.")
+        return;
     }
 
 console.log(maxMZ,maxInt,maxRT,cnt);

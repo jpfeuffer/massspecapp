@@ -21,17 +21,19 @@
   <div class="content">
     <h1>Spectrum Viewer</h1>
 
-    <p>This is an example for viewing mass-spectra with pyOpenMS, Bokeh, Holoviews, Datashader and ThreeJS</p>
+    <p>This is an example for viewing mass-spectra with pyOpenMS, Bokeh, Holoviews, Datashader and ThreeJS.
+    Zoom into less than 100.000 points to update the 3D View below.</p>
 
     {{ super() }}
 
-    <p>Here comes the 3DView</p>
+    <p>3DView: Right-click on a peak to start measuring. Right-click another to finalize. Zoom with mouse-wheel,
+    pan with right-click + movement, turn camera with left-click + movement.</p>
 
     <div id="threedplot" class="threedplot">
       <div style="position:absolute;" id="info"></div>
-      <div style="position:absolute; top: 45px;" id="distanceMZPlace">Distance MZ: 0 Da</div>
-      <div style="position:absolute; top: 65px;" id="distanceRTPlace">Distance RT: 0 s</div>
-      <input style="position:absolute; top: 85px;" type="file" id="up" />
+      <div style="position:absolute; top: 45px;" id="distanceMZPlace">Distance MZ: Select peak</div>
+      <div style="position:absolute; top: 65px;" id="distanceRTPlace">Distance RT: Select peak</div>
+      <!--<input style="position:absolute; top: 85px;" type="file" id="up" />-->
     </div>
   </div>
 {% endblock %}
