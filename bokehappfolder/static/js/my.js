@@ -130,7 +130,7 @@ function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
         minInt = Math.min(minInt,pt)
         cnt++;
     }
-    if (cnt > 100000)
+    if (cnt > 200000)
     {
         alert("Too many points for 3D view. Please zoom in.")
         return;

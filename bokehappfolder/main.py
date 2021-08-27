@@ -12,19 +12,19 @@ import panel as pn
 from bokeh.plotting import curdoc
 from holoviews.plotting.util import process_cmap
 from numpy import log
-from pyopenms import MSExperiment, MzMLFile, PeakFileOptions
+from pyopenms import MSExperiment, MzMLFile, PeakFileOptions, SignalToNoiseEstimatorMedian, PeakSpectrum, DRange1, \
+    DPosition1
 import pandas as pd
 import os
 import holoviews as hv
 import holoviews.operation.datashader as hd
 from holoviews import opts, dim
 from tornado import gen
-from tornado.ioloop import IOLoop
 
 pn.extension()
 hv.extension('bokeh')
 renderer = hv.renderer('bokeh').instance(mode='server')
-
+spectradf = pd.DataFrame()
 
 def modify_doc(doc):
     """Add a plotted function to the document.
@@ -35,10 +35,11 @@ def modify_doc(doc):
 
     exp = MSExperiment()
     loader = MzMLFile()
-    opts = loader.getOptions()  # type: PeakFileOptions
-    opts.setMSLevels([1])
-    opts.setIntensity32Bit(True)
-    loader.setOptions(opts)
+    loadopts = loader.getOptions()  # type: PeakFileOptions
+    loadopts.setMSLevels([1])
+    loadopts.setIntensity32Bit(True)
+    loadopts.setIntensityRange(DRange1(DPosition1(3000),DPosition1(sys.maxsize)))
+    loader.setOptions(loadopts)
 
     if len(sys.argv) > 1:
         file = sys.argv[1]
@@ -75,44 +76,57 @@ def modify_doc(doc):
     ## Layout
     doc.title = 'Mass-spectrometry Viewer'
 
-    dynamic_col = bokeh.layouts.column(Div(text="Loading spectra..."))
+    dynamic_col = bokeh.layouts.column(Div(text="Loading spectra...", width=300, height=150, css_classes=["lds-dual-ring"]), css_classes=["centered"])
     if len(sys.argv) > 2 and sys.argv[2] == "stoppable":
-        layout = bokeh.layouts.layout(dynamic_col, [invisText,invisText2])
+        layout = bokeh.layouts.layout(dynamic_col, [invisText, invisText2], css_classes=["centered"])
     else:
-        layout = bokeh.layouts.layout(dynamic_col,[invisText,invisText2,stopbutton])
+        layout = bokeh.layouts.layout(dynamic_col, [invisText, invisText2, stopbutton], css_classes=["centered"])
 
     def init_2D_plot_and_update_btn():
-        # Start the stopwatch / counter
-        t1_start = perf_counter()
-        loader.load(file, exp)
-        load_stop = perf_counter()
-        print("Time for loading mzML:",
-              load_stop - t1_start)
-        cnt = sum(spec.size() for spec in exp)
+        global spectradf
+        # TODO check if not present yet..
 
-        cols = ["RT", "mzarray", "intarray"]
-        expandcols = ["RT", "mz", "inty"]
-        spectraarr = np.fromiter(((spec.getRT(), point[0], point[1]) for spec in exp
-                                  for point in zip(*spec.get_peaks())), dtype=[('RT', 'f'), ('mz', 'f'), ('inty', 'f')],
-                                 count=cnt)
-        np_stop = perf_counter()
-        print("Time for loading and creating numpy array:",
-              np_stop - load_stop)
-        # spectradfwide = pd.DataFrame(data=((spec.getRT(), *spec.get_peaks()) for spec in exp), columns=cols)
-        # spectradf = pd.DataFrame(data=((spec.getRT(), point[0], point[1]) for spec in exp for point in zip(*spec.get_peaks())), columns=expandcols)
+        if spectradf.empty:
 
-        # Initial tests showed that loading into numpy array first is faster than direct construction from iter.
-        spectradf = pd.DataFrame(data=spectraarr, columns=expandcols)
+            # Start the stopwatch / counter
+            t1_start = perf_counter()
+            loader.load(file, exp)
+
+            #snm = SignalToNoiseEstimatorMedian()
+            #for spec in exp:  # type: PeakSpectrum
+            #    snm.init(spec)
+            #    for i in range(0, spec.size()):
+            #        if snm.getSignalToNoise(i) < 3:
+            #            spec[i].setIntensity(0.0)
+            load_stop = perf_counter()
+            print("Time for loading mzML:",
+                  load_stop - t1_start)
+            cnt = sum(spec.size() for spec in exp)
+
+            cols = ["RT", "mzarray", "intarray"]
+            expandcols = ["RT", "mz", "inty"]
+            spectraarr = np.fromiter(((spec.getRT(), point[0], point[1]) for spec in exp
+                                      for point in zip(*spec.get_peaks())), dtype=[('RT', 'f'), ('mz', 'f'), ('inty', 'f')],
+                                     count=cnt)
+            np_stop = perf_counter()
+            print("Time for loading and creating numpy array:",
+                  np_stop - load_stop)
+            # spectradfwide = pd.DataFrame(data=((spec.getRT(), *spec.get_peaks()) for spec in exp), columns=cols)
+            # spectradf = pd.DataFrame(data=((spec.getRT(), point[0], point[1]) for spec in exp for point in zip(*spec.get_peaks())), columns=expandcols)
+
+            # Initial tests showed that loading into numpy array first is faster than direct construction from iter.
+            spectradf = pd.DataFrame(data=spectraarr, columns=expandcols)
+
+            # Stop the stopwatch / counter
+            df_stop = perf_counter()
+            print("Time for loading and creating DF:",
+                  df_stop - np_stop)
+        df_stop = perf_counter()
         # spectracds = ColumnDataSource(spectradf)
         maxrt = spectradf["RT"].max()
         minrt = spectradf["RT"].min()
         maxmz = spectradf["mz"].max()
         minmz = spectradf["mz"].min()
-
-        # Stop the stopwatch / counter
-        df_stop = perf_counter()
-        print("Time for loading and creating DF:",
-              df_stop - np_stop)
 
         def new_bounds_hook(plot, elem):
             x_range = plot.state.x_range
@@ -171,12 +185,12 @@ def modify_doc(doc):
                                                                                       spectradf[spectradf['RT'].between(
                                                                                           hvplot.state.x_range.start,
                                                                                           hvplot.state.x_range.end)]))))
-            invisText2.value = "baz"  # + str(random.randint(0, 10000))
+            invisText2.value = "baz" + str(random.randint(0, 10000))
 
         # The update 3D button
         bt = Button(label='Update 3D View')
         bt.on_click(onbuttonclick)
-        dynamic_col.children = []
+        dynamic_col.children = []  # reset, then add
         dynamic_col.children.append(hvplot.state)
         dynamic_col.children.append(bt)
 
