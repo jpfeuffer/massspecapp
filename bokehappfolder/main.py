@@ -44,8 +44,8 @@ def modify_doc(doc):
     if len(sys.argv) > 1:
         file = sys.argv[1]
     else:
-        file = "/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML"
-        #file = str(Path(__file__).resolve().parent) + "/static/data/BSA1.mzML"
+        #file = "/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML"
+        file = str(Path(__file__).resolve().parent) + "/static/data/BSA1.mzML"
 
     jsupdateinfo = '''
         renderAllCDS(data, xr.start, xr.end, yr.start, yr.end);
