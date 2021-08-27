@@ -3,6 +3,10 @@
 //TODO reuse much more functions! Problem is the different data we sometimes use.
 //TODO indent better
 //TODO get maxInt only from mzs in range
+// For the time now
+Date.prototype.timeNow = function () {
+     return ((this.getHours() < 10)?"0":"") + this.getHours() +":"+ ((this.getMinutes() < 10)?"0":"") + this.getMinutes() +":"+ ((this.getSeconds() < 10)?"0":"") + this.getSeconds();
+}
 
 console.clear();
 
@@ -16,7 +20,10 @@ var scene = new THREE.Scene();
 scene.background = new THREE.Color("white");
 let camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 1000);
 camera.position.set(0, 70, 150);
-let renderer = new THREE.WebGLRenderer({antialias: false}); //AA off for now for speed?
+let renderer = new THREE.WebGLRenderer({antialias: true}); //AA off for now for speed?
+let light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.setScalar(1);
+scene.add(light, new THREE.AmbientLight(0xffffff, 0.75));
 
 $(document).ready(function(){
     $('.threedplot').append($(gui.domElement));
@@ -94,9 +101,12 @@ function closest (num, arr, lo, hi) {
 // called from app, not here
 function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
     globaldata = data;
-    let startrtidx = closest(minRT,data.data['RT'],0,data.data['RT'].length - 1)
+    // We now assume that the data we get is already filtered for the RT range
+    //let startrtidx = closest(minRT,data.data['RT'],0,data.data['RT'].length - 1)
+    let startrtidx = 0;
     globalrtminidx = startrtidx;
-    let endrtidx = closest(maxRT,data.data['RT'],startrtidx,data.data['RT'].length - 1)
+    //let endrtidx = closest(maxRT,data.data['RT'],startrtidx,data.data['RT'].length - 1)
+    let endrtidx = data.data['RT'].length - 1;
     globalrtmaxidx = endrtidx;
     console.log(startrtidx,endrtidx)
     let container = renderer.domElement.parentElement;
@@ -240,7 +250,7 @@ let m = THREE.extendMaterial(THREE.MeshPhongMaterial, {
 });
 
 camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 1000);
-camera.position.set(250, 70, 250);
+camera.position.set(250, 200, 250);
 renderer.setSize(container.getBoundingClientRect().width, container.getBoundingClientRect().height);
 camera.aspect = container.getBoundingClientRect().width/container.getBoundingClientRect().height;
 
@@ -287,7 +297,8 @@ function updatePeaks(instMesh, withHeight, dotSize)
     {
       dummy.position.set(y,hData/2,x);
       dummy.scale.set(1, hData ,1);
-      instMesh.setColorAt(cnt2, new THREE.Color())
+      // if color is empty, the custom renderer should define color by height.
+      instMesh.setColorAt(cnt2, new THREE.Color(1.0,1.0,1.0))
     }
     else
     {
@@ -324,6 +335,8 @@ renderer.setAnimationLoop( _ => {
     o.getMatrixAt(instanceId, mat4);
     mat4.decompose(dummy.position, dummy.quaternion, dummy.scale);
 
+    //TODO when Top view is active, we rescale the height to 0.0001 so using dummy.scale.y is wrong.
+    // We probably need to save the intensity somewhere else in the instMesh array. Like a custom data field.
     info.innerText = `int: ${dummy.scale.y*maxInt},\n RT: ${(dummy.position.x / scaleRT) + minRT},\n mz: ${(dummy.position.z/scaleMZ) + minMZ}`;
 
   }
@@ -345,7 +358,7 @@ var guiTopView = { topview:function(){
       updatePeaks(o,false,2);
 
       camera.position.x = (maxRT-minRT)*scaleRT/2;
-      camera.position.y = 100;
+      camera.position.y = 200;
       camera.position.z = (maxMZ-minMZ)*scaleMZ/2;
       camera.lookAt((maxRT-minRT)*scaleRT/2,0,(maxMZ-minMZ)*scaleMZ/2);
       camera.updateProjectionMatrix();

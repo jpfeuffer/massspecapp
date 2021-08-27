@@ -20,7 +20,7 @@ for pep in peps:
         'msgf': None,
         'msgf_raw': None,
         'msgf_pep': None,
-        'comet_seq':  best_hit.getSequence().toString(),
+        'comet_seq': best_hit.getSequence().toString(),
         'msgf_seq': None,
         'target_decoy_comet': best_hit.getMetaValue("target_decoy"),
         'target_decoy_msgf': None,

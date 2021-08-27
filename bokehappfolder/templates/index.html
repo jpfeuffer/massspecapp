@@ -3,9 +3,10 @@
 {% block title %}Mass-spec viewer{% endblock %}
 {% block preamble %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
-<script src="https://threejs.org/build/three.js"></script>
+<!-- Warning: 0.132 breaks our coloring of the 3D view.. Dont know why. Seems to still work in CodePen. -->
+<script src="https://unpkg.com/three@0.131.3/build/three.js"></script>
 <script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
-<script src="https://threejs.org/examples/js/utils/BufferGeometryUtils.js"></script>
+<script src="https://threejs.org/examples/jsm/utils/BufferGeometryUtils.js"></script>
 <script src="https://mrdoob.github.io/stats.js/build/stats.js"></script>
 <script src="https://mevedia.com/share/ExtendMaterial.js?v1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
