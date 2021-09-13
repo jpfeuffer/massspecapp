@@ -124,13 +124,15 @@ function renderAllCDS(data, minRT, maxRT, minMZ, maxMZ) {
     {
         let mz = data.data['mz'][i];
         // TODO if everything is sorted we should be able to do binary search inside the RT slice on mz level
-        if (mz < minMZ || mz > maxMZ) continue;
+        // With the new "only transfer what is visible mode" we do not need to check mz range
+        //if (mz < minMZ || mz > maxMZ) continue;
         let pt = data.data['inty'][i];
         maxInt = Math.max(maxInt,pt)
         minInt = Math.min(minInt,pt)
+        // if data is filtered already, cnt could be just length
         cnt++;
     }
-    if (cnt > 200000)
+    if (cnt > 300000)
     {
         alert("Too many points for 3D view. Please zoom in.")
         return;
@@ -287,7 +289,7 @@ function updatePeaks(instMesh, withHeight, dotSize)
   for (let i = globalrtminidx; i < globalrtmaxidx; i++)
   {
     let mz = globaldata.data['mz'][i];
-    if (mz < minMZ || mz > maxMZ) continue;
+    //if (mz < minMZ || mz > maxMZ) continue;
     let x = (mz - minMZ) * scaleMZ;
 
     let hData = globaldata.data['inty'][i]*intPaintWidth/maxInt;
