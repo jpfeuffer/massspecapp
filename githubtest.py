@@ -1,14 +1,19 @@
+import matplotlib.pyplot
+import pyopenms.Plotting
 from pyopenms import *
-exp = MSExperiment()  # type: PeakMap
+
+annotated_spectra = MSExperiment()
+orig_spectra = MSExperiment()
 loader = MzMLFile()
-loader.load("/Users/pfeuffer/PycharmProjects/pyopenms_test/bokehappfolder/static/data/BSA1.mzML", exp)
-spec = exp[0]  # type: PeakSpectrum
-metavaluekeys = []
-spec.getKeys(metavaluekeys)
-print(metavaluekeys) # metavaluekeys[0] == "base peak m/z"
-print(spec.getMetaValue("base peak m/z"))
-#for spec in exp:  # type: PeakSpectrum
-#    instsettings = spec.getInstrumentSettings()  # type: InstrumentSettings
-#    spec.metaRegistry()
-#    if instsettings.getPolarity() == IonSource().Polarity.POSITIVE:
-#        print("positive")
+loader.load("/Users/pfeuffer/git/OpenMS-fixes-src/cmake-build-debug/src/tests/topp/spec.mzML", annotated_spectra)
+loader.load("/Users/pfeuffer/git/OpenMS-fixes-src/src/tests/topp/THIRDPARTY/SiriusAdapter_1_input.mzML", orig_spectra)
+spec = annotated_spectra[10]  # type: MSSpectrum
+lookup = SpectrumLookup()
+lookup.readSpectra(orig_spectra, ".?<SCAN>")
+arrs = spec.getStringDataArrays()
+foo = arrs[0]
+print(spec.getNativeID())
+orig = orig_spectra[lookup.findByNativeID(spec.getNativeID())]
+pyopenms.Plotting.mirror_plot_spectrum(orig, spec, spectrum_top_kws={"color_ions": False},
+                                       spectrum_bottom_kws={"color_ions": False})
+matplotlib.pyplot.show()

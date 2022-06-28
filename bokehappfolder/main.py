@@ -18,8 +18,8 @@ from bokeh.plotting import curdoc
 from holoviews.plotting.util import process_cmap
 from holoviews.streams import Selection1D
 from numpy import log
-from pyopenms import MSExperiment, MzMLFile, PeakFileOptions, SignalToNoiseEstimatorMedian, PeakSpectrum, DRange1, \
-    DPosition1
+from pyopenms import MSExperiment, PeakMap, MzMLFile, PeakFileOptions, SignalToNoiseEstimatorMedian, PeakSpectrum, DRange1, \
+    DPosition1, FeatureMap, Feature, PeptideIdentification, PeptideHit, FeatureXMLFile
 import pandas as pd
 import os
 import holoviews as hv
@@ -27,6 +27,38 @@ import holoviews.operation.datashader as hd
 from holoviews import opts, dim
 from tornado import gen
 
+
+class FeatureMapDF(FeatureMap):
+    def __init__(self):
+        super().__init__()
+
+    def get_df(self):
+        def gen(fmap: FeatureMap, fun):
+            for f in fmap:
+                yield from fun(f)
+
+        def extractMetaData(f: Feature):
+            # subfeatures = f.getFeatureList()  # type: list[FeatureHandle]
+            pep = f.getPeptideIdentifications()  # type: list[PeptideIdentification]
+            bb = f.getConvexHull().getBoundingBox2D()
+            if len(pep) != 0:
+                hits = pep[0].getHits()
+                if len(hits) != 0:
+                    besthit = hits[0]  # type: PeptideHit
+                    # TODO what else
+                    yield f.getUniqueId(), besthit.getSequence().toString(), f.getCharge(), f.getRT(), f.getMZ(), bb[0][0], bb[1][0], bb[0][1], bb[1][1], f.getOverallQuality(), f.getIntensity()
+                else:
+                    yield f.getUniqueId(), None, f.getCharge(), f.getRT(), f.getMZ(), bb[0][0], bb[1][0], bb[0][1], bb[1][1], f.getOverallQuality(), f.getIntensity()
+            else:
+                yield f.getUniqueId(), None, f.getCharge(), f.getRT(), f.getMZ(), bb[0][0], bb[1][0], bb[0][1], bb[1][1], f.getOverallQuality(), f.getIntensity()
+
+        cnt = self.size()
+
+        mddtypes = [('id', np.dtype('uint64')), ('sequence', 'U200'), ('charge', 'i4'), ('RT', 'f'), ('mz', 'f'),
+                    ('RTstart', 'f'), ('RTend', 'f'), ('mzstart', 'f'), ('mzend', 'f'),
+                    ('quality', 'f'), ('intensity', 'f')]
+        mdarr = np.fromiter(iter=gen(self, extractMetaData), dtype=mddtypes, count=cnt)
+        return pd.DataFrame(mdarr).set_index('id')
 
 def SpectrumGenerator(file_path):
     q = queue.Queue(maxsize=1)
@@ -76,7 +108,6 @@ class MSCallback:
     def consumeSpectrum(self, s: PeakSpectrum):
         #if s.getMSLevel() == 2:
             self.q.put((s.getRT(), point[0], point[1]) for point in zip(*s.get_peaks()))
-        #self.q.put(unpack(s.getRT(),*s.get_peaks()))
 
 pn.extension()
 hv.extension('bokeh')
@@ -91,20 +122,23 @@ def modify_doc(doc):
     """
 
     # Now done with a generator
-    #exp = MSExperiment()
-    #loader = MzMLFile()
-    #loadopts = loader.getOptions()  # type: PeakFileOptions
-    #loadopts.setMSLevels([1])
-    #loadopts.setSkipXMLChecks(True)
-    #loadopts.setIntensity32Bit(True)
-    #loadopts.setIntensityRange(DRange1(DPosition1(10000), DPosition1(sys.maxsize)))
-    #loader.setOptions(loadopts)
+    exp = MSExperiment()  # type: PeakMap
+    loader = MzMLFile()
+    loadopts = loader.getOptions()  # type: PeakFileOptions
+    loadopts.setMSLevels([1])
+    loadopts.setSkipXMLChecks(True)
+    loadopts.setIntensity32Bit(True)
+    loadopts.setIntensityRange(DRange1(DPosition1(10000), DPosition1(sys.maxsize)))
+    loader.setOptions(loadopts)
 
     if len(sys.argv) > 1:
         file = sys.argv[1]
     else:
-        file = "/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML"
+        file = "/Users/pfeuffer/git/OpenMS-fixes-src/share/OpenMS/examples/FRACTIONS/BSA1_F1.mzML"
+        #file = "/Volumes/Data/UPS1/mzML/UPS1_250amol_R1.mzML"
         #file = str(Path(__file__).resolve().parent) + "/static/data/BSA1.mzML"
+        #fxmlfile = None
+        fxmlfile = "/Users/pfeuffer/git/OpenMS-fixes-src/share/OpenMS/examples/FRACTIONS/BSA1_F1_idmapped.featureXML"
 
     jsupdateinfo = '''
         renderAllCDS(data, xr.start, xr.end, yr.start, yr.end);
@@ -119,7 +153,7 @@ def modify_doc(doc):
     stopbutton = Button(label="Stop server", button_type="danger")
     stopbutton.on_click(stopbutton_callback)
 
-    # Fake selectors that we use to trigger both a python function (for data filetering)
+    # Fake selectors that we use to trigger both a python function (for data filtering)
     # and a JS function to update the 3D View with the filtered data
     invisText = Select(title="Option:", value="foo", options=["foo", "bar", "baz", "quux"], visible=False, id="InvisibleText")
     invisText2 = Select(title="Option:", value="bar", options=["foo", "bar", "baz", "quux"], visible=False, id="InvisibleText2")
@@ -152,25 +186,50 @@ def modify_doc(doc):
             cols = ["RT", "mzarray", "intarray"]
             expandcols = ["RT", "mz", "inty"]
 
-            # With the on-the-fly parsing we cannot use a count anymore. And a double-pass parse does not
+            # On-the-fly: With the on-the-fly parsing we cannot use a count anymore. And a double-pass parse does not
             # make sense if you have to load the full data to count the peaks. Maybe if nr of peaks were annotated.
             # but then we could not filter during load. So this is probably as good as it gets.
-            spectraarr = np.fromiter(SpectrumGenerator(file),
-                                     dtype=[('RT', 'f'), ('mz', 'f'), ('inty', 'f')])
+            #spectraarr = np.fromiter(SpectrumGenerator(file),
+            #                         dtype=[('RT', 'f'), ('mz', 'f'), ('inty', 'f')])
+
+            # InMem:
+            # The doublepass for counting seems to be not worth it.
+            loader.load(file, exp)
+            exp.updateRanges()
+
+            np_stop1 = perf_counter()
+            print("Time for loading:",
+                  np_stop1 - t1_start)
+
+            ## 2DPeakDataLong version
+            spectraarrs2d = exp.get2DPeakDataLong(exp.getMinRT(), exp.getMaxRT(), exp.getMinMZ(), exp.getMaxMZ())
+
+            ## Iter long version
+            #spectraarr = np.fromiter(((spec.getRT(), point[0], point[1]) for spec in exp for point in zip(*spec.get_peaks())), dtype=[('RT', 'f'), ('mz', 'f'), ('inty', 'f')])#, count=sum(s.size() for s in exp))
 
             np_stop = perf_counter()
-            print("Time for loading and creating numpy array:",
-                  np_stop - t1_start)
-            # spectradfwide = pd.DataFrame(data=((spec.getRT(), *spec.get_peaks()) for spec in exp), columns=cols)
-            # spectradf = pd.DataFrame(data=((spec.getRT(), point[0], point[1]) for spec in exp for point in zip(*spec.get_peaks())), columns=expandcols)
+            print("Time for creating numpy array:",
+                  np_stop - np_stop1)
+
+            ## 2D PeakDataLong version
+            spectradf = pd.DataFrame(dict(zip(expandcols, spectraarrs2d)))
+
+            ## Iter long version
+            #spectradf = pd.DataFrame(data=spectraarr, columns=expandcols)
 
             # Initial tests showed that loading into numpy array first is faster than direct construction from iter.
-            spectradf = pd.DataFrame(data=spectraarr, columns=expandcols)
+            ## Wide version
+            # spectradf = pd.DataFrame(data=((spec.getRT(), *spec.get_peaks()) for spec in exp), columns=cols)
+            ## Long version (direct DF)
+            # spectradf = pd.DataFrame(data=((spec.getRT(), point[0], point[1]) for spec in exp for point in zip(*spec.get_peaks())), columns=expandcols)
+
+            print("Loaded " + str(len(spectradf)) + " peaks.")
 
             # Stop the stopwatch / counter
             df_stop = perf_counter()
             print("Time for loading and creating DF:",
                   df_stop - np_stop)
+
         df_stop = perf_counter()
         # spectracds = ColumnDataSource(spectradf)
 
@@ -183,8 +242,14 @@ def modify_doc(doc):
             height=1000,
             tools=['hover'])
 
-        rectdata = pd.DataFrame(np.fromiter(((rt - 10, mz - 1, rt + 10, mz + 1) for rt, mz in itertools.product(range(1500, 2400, 10), range(400, 800, 5))), count=int(90*(400/5)), dtype=[('xs','f'),('ys','f'),('xe','f'),('ye','f')]))
-        rects = hv.Rectangles(rectdata).opts(color="value", alpha=0.1, tools=['tap'])
+        #rectdata = pd.DataFrame(np.fromiter(((rt - 10, mz - 1, rt + 10, mz + 1) for rt, mz in itertools.product(range(1500, 2400, 10), range(400, 800, 5))), count=int(90*(400/5)), dtype=[('xs','f'),('ys','f'),('xe','f'),('ye','f')]))
+        if (fxmlfile is not None):
+            fmap = FeatureMapDF()
+            FeatureXMLFile().load(fxmlfile, fmap)
+            featdf = fmap.get_df()
+            rects = hv.Rectangles(featdf, kdims=["RTstart", "mzstart", "RTend", "mzend"]).opts(color="value", alpha=0.1, tools=['tap'])
+        else:
+            rects = hv.Rectangles([])
 
         # for later lookup, index the dataframe
         # TODO the best would be if we could access the data from points, but I just cannot figure out how.
@@ -229,26 +294,34 @@ def modify_doc(doc):
         stream = Selection1D(source=rects)
         def rect_selection(index):
             if len(index) > 0:
-                return hv.Rectangles(rectdata.iloc[index[0]].to_frame().T)
+                return hv.Rectangles(featdf.iloc[index[0]].to_frame().T, kdims=["RTstart", "mzstart", "RTend", "mzend"])
             else:
                 return hv.Rectangles([])
+
+        def rect_annotation(index):
+            if len(index) > 0:
+                return hv.Table(featdf.iloc[index[0]].to_frame().T).opts(title="Selected feature", height=70, width=800)
+            else:
+                return hv.Table([]).opts(title="Selected feature", height=70, width=800)
 
         # in case we ever want to check for intersections ourselves. Holoviews seems to be a bit slow.
         # actually an interval/KD/quad tree like structure would be nice for checking intersections.
         def rect_tap(x,y):
-            print(rectdata[rectdata.apply(lambda row : x > row[0] and x < row[2] and y > row[1] and y < row[3])])
+            print(featdf[featdf.apply(lambda row : x > row[0] and x < row[2] and y > row[1] and y < row[3])])
             return hv.Points([])
+
         dyn = hv.DynamicMap(rect_selection, kdims=[], streams=[stream]).opts(color="red", alpha=0.1)
-
-
+        dyntable = hv.DynamicMap(rect_annotation, kdims=[], streams=[stream])
 
         # Dynspread dynamically increases the size of the points when zooming in.
-        finalplot = (hd.dynspread(raster, threshold=0.7, how="add", shape="square") * rects * dyn)
+        finalplot = hv.Layout(dyntable + (hd.dynspread(raster, threshold=0.7, how="add", shape="square") * rects * dyn))
             #.opts( # this is how you can change specific styles afterwards
             #    opts.Rectangles(color="value", alpha=0.1, tools=['tap'])
             #)
+        finalplot.cols(1)
 
-        hvplot = renderer.get_plot(finalplot, doc)
+        tableplot = renderer.get_plot(finalplot[0], doc)
+        hvplot = renderer.get_plot(finalplot[1], doc)
 
         # updates the JS function to be triggered by invisText with the new filtered data.
         # then triggers a value change in invisText2. This will trigger a js side change for invisText,
@@ -288,6 +361,8 @@ def modify_doc(doc):
         bt = Button(label='Update 3D View')
         bt.on_click(onbuttonclick)
         dynamic_col.children = []  # reset, then add
+        #dynamic_col.children.append(finalplot)
+        dynamic_col.children.append(tableplot.state)
         dynamic_col.children.append(hvplot.state)
         dynamic_col.children.append(bt)
 
